@@ -521,7 +521,7 @@ export default function App() {
                   </button>
                   <button type="button" onClick={downloadUpdate} disabled={updateStatus.phase !== 'available'}>
                     <DownloadCloud size={17} />
-                    <span>Download</span>
+                    <span>{updateStatus.source === 'github-api' ? 'Open Download' : 'Download'}</span>
                   </button>
                   <button type="button" onClick={installUpdate} disabled={updateStatus.phase !== 'downloaded'}>
                     <Check size={17} />

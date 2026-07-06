@@ -33,5 +33,8 @@ export type UpdateStatus = {
   message: string;
   version?: string;
   percent?: number;
+  source?: 'electron-updater' | 'github-api';
+  releaseUrl?: string;
+  downloadUrl?: string;
   isPackaged: boolean;
 };

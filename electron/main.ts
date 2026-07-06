@@ -1,7 +1,8 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
+import https from 'node:https';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { AppSettings, NoteMeta, UpdateStatus, VaultNode, VaultSnapshot } from './shared.js';
@@ -23,6 +24,19 @@ let updateStatus: UpdateStatus = {
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL) || !app.isPackaged;
 let storeCache: StoreShape | null = null;
+const updateOwner = 'Jmiller10212';
+const updateRepo = 'vault-notes';
+
+type GitHubRelease = {
+  tag_name: string;
+  html_url: string;
+  draft: boolean;
+  prerelease: boolean;
+  assets: Array<{
+    name: string;
+    browser_download_url: string;
+  }>;
+};
 
 function settingsPath() {
   return path.join(app.getPath('userData'), 'settings.json');
@@ -238,19 +252,122 @@ function setUpdateStatus(patch: Omit<Partial<UpdateStatus>, 'isPackaged'>) {
   mainWindow?.webContents.send('updates:status', updateStatus);
 }
 
+function normalizeVersion(input: string) {
+  return input.replace(/^v/i, '').split(/[+-]/)[0];
+}
+
+function compareVersions(left: string, right: string) {
+  const leftParts = normalizeVersion(left).split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const rightParts = normalizeVersion(right).split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const length = Math.max(leftParts.length, rightParts.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const diff = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (diff !== 0) return diff;
+  }
+
+  return 0;
+}
+
+function requestJson<T>(url: string, redirects = 0): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const request = https.get(
+      url,
+      {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'Vault-Notes-Updater'
+        }
+      },
+      (response) => {
+        const statusCode = response.statusCode ?? 0;
+        const location = response.headers.location;
+
+        if (statusCode >= 300 && statusCode < 400 && location && redirects < 5) {
+          response.resume();
+          resolve(requestJson<T>(new URL(location, url).toString(), redirects + 1));
+          return;
+        }
+
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk) => {
+          body += chunk;
+        });
+        response.on('end', () => {
+          if (statusCode < 200 || statusCode >= 300) {
+            reject(new Error(`GitHub update check failed with HTTP ${statusCode}.`));
+            return;
+          }
+
+          try {
+            resolve(JSON.parse(body) as T);
+          } catch (error) {
+            reject(error);
+          }
+        });
+      }
+    );
+
+    request.on('error', reject);
+    request.setTimeout(15000, () => {
+      request.destroy(new Error('GitHub update check timed out.'));
+    });
+  });
+}
+
+async function checkGitHubLatestRelease() {
+  const release = await requestJson<GitHubRelease>(`https://api.github.com/repos/${updateOwner}/${updateRepo}/releases/latest`);
+  if (release.draft || release.prerelease) return updateStatus;
+
+  const latestVersion = normalizeVersion(release.tag_name);
+  const currentVersion = app.getVersion();
+  const installer = release.assets.find((asset) => {
+    const name = asset.name.toLowerCase();
+    return name.endsWith('.exe') && name.includes('setup');
+  });
+
+  if (compareVersions(latestVersion, currentVersion) > 0) {
+    setUpdateStatus({
+      phase: 'available',
+      message: `Version ${latestVersion} is available from GitHub.`,
+      version: latestVersion,
+      percent: undefined,
+      source: 'github-api',
+      releaseUrl: release.html_url,
+      downloadUrl: installer?.browser_download_url ?? release.html_url
+    });
+  } else if (updateStatus.phase !== 'available' && updateStatus.phase !== 'downloaded' && updateStatus.phase !== 'downloading') {
+    setUpdateStatus({
+      phase: 'not-available',
+      message: `Vault Notes is up to date at version ${currentVersion}.`,
+      version: currentVersion,
+      percent: undefined,
+      source: 'github-api',
+      releaseUrl: release.html_url,
+      downloadUrl: undefined
+    });
+  }
+
+  return updateStatus;
+}
+
 function configureUpdater() {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on('checking-for-update', () => {
-    setUpdateStatus({ phase: 'checking', message: 'Checking GitHub for updates...', percent: undefined });
+    setUpdateStatus({ phase: 'checking', message: 'Checking GitHub for updates...', percent: undefined, source: 'electron-updater' });
   });
   autoUpdater.on('update-available', (info) => {
     setUpdateStatus({
       phase: 'available',
       message: `Version ${info.version} is available.`,
       version: info.version,
-      percent: undefined
+      percent: undefined,
+      source: 'electron-updater',
+      releaseUrl: undefined,
+      downloadUrl: undefined
     });
   });
   autoUpdater.on('update-not-available', (info) => {
@@ -258,14 +375,19 @@ function configureUpdater() {
       phase: 'not-available',
       message: `Vault Notes is up to date at version ${info.version}.`,
       version: info.version,
-      percent: undefined
+      percent: undefined,
+      source: 'electron-updater',
+      releaseUrl: undefined,
+      downloadUrl: undefined
     });
+    void checkGitHubLatestRelease().catch(() => undefined);
   });
   autoUpdater.on('download-progress', (progress) => {
     setUpdateStatus({
       phase: 'downloading',
       message: `Downloading update (${Math.round(progress.percent)}%).`,
-      percent: progress.percent
+      percent: progress.percent,
+      source: 'electron-updater'
     });
   });
   autoUpdater.on('update-downloaded', (info) => {
@@ -273,14 +395,16 @@ function configureUpdater() {
       phase: 'downloaded',
       message: `Version ${info.version} is ready to install.`,
       version: info.version,
-      percent: 100
+      percent: 100,
+      source: 'electron-updater'
     });
   });
   autoUpdater.on('error', (error) => {
     setUpdateStatus({
       phase: 'error',
       message: error.message || 'Update check failed.',
-      percent: undefined
+      percent: undefined,
+      source: 'electron-updater'
     });
   });
 }
@@ -294,16 +418,69 @@ async function checkForUpdates(userInitiated: boolean) {
     return updateStatus;
   }
 
+  setUpdateStatus({
+    phase: 'checking',
+    message: 'Checking GitHub for updates...',
+    percent: undefined,
+    source: 'electron-updater'
+  });
+
   try {
     await autoUpdater.checkForUpdates();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 750);
+    });
+
+    if (updateStatus.phase === 'not-available' || updateStatus.phase === 'checking') {
+      await checkGitHubLatestRelease();
+    }
   } catch (error) {
-    if (userInitiated) {
-      setUpdateStatus({
-        phase: 'error',
-        message: error instanceof Error ? error.message : 'Update check failed.'
-      });
+    try {
+      await checkGitHubLatestRelease();
+    } catch {
+      if (userInitiated) {
+        setUpdateStatus({
+          phase: 'error',
+          message: error instanceof Error ? error.message : 'Update check failed.',
+          source: 'electron-updater'
+        });
+      }
     }
   }
+  return updateStatus;
+}
+
+async function downloadUpdate() {
+  if (!app.isPackaged) return updateStatus;
+
+  if (updateStatus.source === 'github-api' && (updateStatus.downloadUrl || updateStatus.releaseUrl)) {
+    const url = updateStatus.downloadUrl ?? updateStatus.releaseUrl;
+    if (url) await shell.openExternal(url);
+    setUpdateStatus({
+      message: 'Opening the GitHub installer download in your browser. Run the installer to update Vault Notes.',
+      source: 'github-api'
+    });
+    return updateStatus;
+  }
+
+  try {
+    await autoUpdater.downloadUpdate();
+  } catch (error) {
+    if (updateStatus.downloadUrl || updateStatus.releaseUrl) {
+      const url = updateStatus.downloadUrl ?? updateStatus.releaseUrl;
+      if (url) await shell.openExternal(url);
+      setUpdateStatus({
+        message: 'The in-app download failed, so the GitHub installer download was opened in your browser.'
+      });
+      return updateStatus;
+    }
+
+    setUpdateStatus({
+      phase: 'error',
+      message: error instanceof Error ? error.message : 'Update download failed.'
+    });
+  }
+
   return updateStatus;
 }
 
@@ -330,14 +507,12 @@ ipcMain.handle('settings:update', (_event, patch: Partial<AppSettings>) => {
 
 ipcMain.handle('updates:getStatus', () => updateStatus);
 ipcMain.handle('updates:check', () => checkForUpdates(true));
-ipcMain.handle('updates:download', async () => {
-  if (!app.isPackaged) return updateStatus;
-  await autoUpdater.downloadUpdate();
-  return updateStatus;
-});
+ipcMain.handle('updates:download', () => downloadUpdate());
 ipcMain.handle('updates:install', () => {
   if (app.isPackaged && updateStatus.phase === 'downloaded') {
     autoUpdater.quitAndInstall(false, true);
+  } else if (updateStatus.source === 'github-api' && updateStatus.releaseUrl) {
+    void shell.openExternal(updateStatus.releaseUrl);
   }
   return updateStatus;
 });
