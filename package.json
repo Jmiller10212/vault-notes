@@ -1,0 +1,72 @@
+{
+  "name": "grammarly-vault-notes",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An Obsidian-style local Markdown notes app with a Grammarly-friendly editor mode.",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && tsc -p tsconfig.electron.json --watch --preserveWatchOutput\" \"wait-on tcp:5173 file:dist-electron/main.js && electron .\"",
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.electron.json && vite build",
+    "dist:win": "npm run build && electron-builder --win nsis portable",
+    "release:win": "npm run build && electron-builder --win nsis portable --publish=always",
+    "pack:win": "npm run build && electron-builder --win dir",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "build": {
+    "appId": "com.local.vaultnotes",
+    "productName": "Vault Notes",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Jmiller10212",
+        "repo": "vault-notes"
+      }
+    ]
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.8.1",
+    "@codemirror/lang-markdown": "^6.3.4",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.3",
+    "electron-updater": "^6.8.9",
+    "lucide-react": "^0.468.0",
+    "marked": "^15.0.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.3",
+    "playwright": "^1.61.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3",
+    "wait-on": "^8.0.1"
+  }
+}
