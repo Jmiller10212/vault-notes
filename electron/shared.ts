@@ -25,6 +25,7 @@ export type AppSettings = {
   vaultPath: string | null;
   editorMode: 'codemirror' | 'textarea';
   splitPreview: boolean;
+  theme: 'soft-dark' | 'midnight' | 'paper';
 };
 
 export type UpdateStatus = {

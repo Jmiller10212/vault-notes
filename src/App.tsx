@@ -30,8 +30,15 @@ type Status = 'idle' | 'saving' | 'saved' | 'error';
 const defaultSettings: AppSettings = {
   vaultPath: null,
   editorMode: 'textarea',
-  splitPreview: true
+  splitPreview: true,
+  theme: 'soft-dark'
 };
+
+const themeOptions: Array<{ value: AppSettings['theme']; label: string }> = [
+  { value: 'soft-dark', label: 'Soft Dark' },
+  { value: 'midnight', label: 'Midnight' },
+  { value: 'paper', label: 'Paper' }
+];
 
 const defaultUpdateStatus: UpdateStatus = {
   phase: 'idle',
@@ -114,11 +121,11 @@ function CodeMirrorEditor({ value, onChange }: { value: string; onChange: (value
         keymap.of([...defaultKeymap, ...historyKeymap]),
         EditorView.lineWrapping,
         EditorView.theme({
-          '&': { height: '100%', backgroundColor: '#1f1f27', color: '#e7e3f0' },
+          '&': { height: '100%', backgroundColor: 'var(--editor)', color: 'var(--text)' },
           '.cm-scroller': { fontFamily: 'Inter, Segoe UI, system-ui, sans-serif', fontSize: '16px', lineHeight: '1.65' },
-          '.cm-gutters': { backgroundColor: '#1f1f27', color: '#746f82', border: 'none' },
-          '.cm-activeLineGutter': { backgroundColor: '#2a2933' },
-          '.cm-activeLine': { backgroundColor: '#282631' },
+          '.cm-gutters': { backgroundColor: 'var(--editor)', color: 'var(--muted)', border: 'none' },
+          '.cm-activeLineGutter': { backgroundColor: 'var(--surface-strong)' },
+          '.cm-activeLine': { backgroundColor: 'var(--surface)' },
           '.cm-content': { padding: '22px 28px' },
           '.cm-line': { padding: '0 4px' }
         }),
@@ -359,7 +366,7 @@ export default function App() {
   const hasUpdateNotice = ['available', 'downloading', 'downloaded'].includes(updateStatus.phase);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell theme-${settings.theme}`}>
       <aside className="sidebar">
         <div className="brand">
           <div>
@@ -483,6 +490,16 @@ export default function App() {
                   <select value={settings.editorMode} onChange={(event) => void updateSettings({ editorMode: event.target.value as AppSettings['editorMode'] })}>
                     <option value="textarea">Grammarly-friendly textarea</option>
                     <option value="codemirror">CodeMirror Markdown</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Theme</span>
+                  <select value={settings.theme} onChange={(event) => void updateSettings({ theme: event.target.value as AppSettings['theme'] })}>
+                    {themeOptions.map((theme) => (
+                      <option key={theme.value} value={theme.value}>
+                        {theme.label}
+                      </option>
+                    ))}
                   </select>
                 </label>
               </div>

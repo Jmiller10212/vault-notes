@@ -10,6 +10,7 @@ type StoreShape = {
   vaultPath?: string;
   editorMode?: AppSettings['editorMode'];
   splitPreview?: boolean;
+  theme?: AppSettings['theme'];
 };
 
 let mainWindow: BrowserWindow | null = null;
@@ -56,7 +57,8 @@ function getSettings(): AppSettings {
   return {
     vaultPath: storeGet('vaultPath') ?? defaultVault,
     editorMode: storeGet('editorMode') ?? 'textarea',
-    splitPreview: storeGet('splitPreview') ?? true
+    splitPreview: storeGet('splitPreview') ?? true,
+    theme: storeGet('theme') ?? 'soft-dark'
   };
 }
 
@@ -75,6 +77,7 @@ async function createWindow() {
     minHeight: 560,
     title: 'Vault Notes',
     backgroundColor: '#17171c',
+    icon: path.join(__dirname, '../build/icon.ico'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -320,6 +323,7 @@ ipcMain.handle('settings:get', () => getSettings());
 ipcMain.handle('settings:update', (_event, patch: Partial<AppSettings>) => {
   if (patch.editorMode) storeSet('editorMode', patch.editorMode);
   if (typeof patch.splitPreview === 'boolean') storeSet('splitPreview', patch.splitPreview);
+  if (patch.theme) storeSet('theme', patch.theme);
   if (typeof patch.vaultPath === 'string') setVaultPath(patch.vaultPath);
   return getSettings();
 });
